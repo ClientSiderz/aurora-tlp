@@ -17,13 +17,22 @@ env:
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.brand_name}}-${{ inputs.stream_name }}
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ matrix.variant.tag }}
   cancel-in-progress: true
 
 jobs:
   build_push:
-    name: Build and push image
+    name: Build and push image (${{ matrix.variant.tag }})
     runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - tag: latest
+            base_image: ghcr.io/ublue-os/aurora:stable
+          - tag: dx
+            base_image: ghcr.io/ublue-os/aurora-dx:stable
 
     permissions:
       contents: read
@@ -56,9 +65,7 @@ jobs:
       - name: Default Tag
         id: gen-default-tag
         run: |
-          DEFAULT_TAG=$(just generate-default-tag)
-
-          echo "DEFAULT_TAG=${DEFAULT_TAG}" >> $GITHUB_ENV
+          echo "DEFAULT_TAG=${{ matrix.variant.tag }}" >> $GITHUB_ENV
 
       - name: Prepare environment
         run: |
@@ -72,7 +79,8 @@ jobs:
         run: |
           sudo -E $(command -v just) build \
             ${IMAGE_NAME} \
-            ${DEFAULT_TAG}
+            ${{ matrix.variant.tag }} \
+            ${{ matrix.variant.base_image }}
 
       # This is optional, this provides smaller delta updates
       - name: Rechunk with rpm-ostree
@@ -80,7 +88,7 @@ jobs:
         run: |
           sudo -E $(command -v just) ostree-rechunk \
             ${IMAGE_NAME} \
-            ${DEFAULT_TAG}
+            ${{ matrix.variant.tag }}
 
       # If you are feeling adventurous, use the new distro agnostic rechunker
       # https://github.com/coreos/chunkah
@@ -97,7 +105,7 @@ jobs:
         run: |
           alias_tags="$(just generate-build-tags \
                         ${IMAGE_NAME} \
-                        ${DEFAULT_TAG})"
+                        ${{ matrix.variant.tag }})"
 
           echo "Tags for this Action..."
           echo "${alias_tags}"
@@ -110,7 +118,7 @@ jobs:
         run: |
           sudo -E $(command -v just) tag-images \
             "${IMAGE_NAME}" \
-            "${DEFAULT_TAG}" \
+            "${{ matrix.variant.tag }}" \
             "${ALIAS_TAGS}"
 
       # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing

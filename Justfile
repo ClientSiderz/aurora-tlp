@@ -7,6 +7,7 @@ export image_desc := env_var("IMAGE_DESC")
 export image_keywords := env_var("IMAGE_KEYWORDS")
 export image_logo_url := env_var("IMAGE_LOGO_URL")
 export default_tag := env_var("DEFAULT_TAG")
+export base_image := env_var("BASE_IMAGE")
 export bib_image := env_var("BIB_IMAGE")
 
 alias build-vm := build-qcow2
@@ -21,6 +22,7 @@ default:
 [group('Just')]
 check:
     #!/usr/bin/bash
+    export XDG_RUNTIME_DIR=${TMPDIR:-/tmp}
     find . -type f -name "*.just" | while read -r file; do
     	echo "Checking syntax: $file"
     	just --unstable --fmt --check -f $file
@@ -32,6 +34,7 @@ check:
 [group('Just')]
 fix:
     #!/usr/bin/bash
+    export XDG_RUNTIME_DIR=${TMPDIR:-/tmp}
     find . -type f -name "*.just" | while read -r file; do
     	echo "Checking syntax: $file"
     	just --unstable --fmt -f $file
@@ -93,7 +96,7 @@ sudoif command *args:
 #
 
 # Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag:
+build $target_image=image_name $tag=default_tag $base_image=base_image:
     #!/usr/bin/env bash
 
     set -euox pipefail
@@ -122,7 +125,7 @@ build $target_image=image_name $tag=default_tag:
     LABELS+=("--label" "org.opencontainers.image.vendor={{ repo_organization }}")
 
     # This actually builds the image!
-    PODMAN_BUILD_ARGS=("${BUILD_ARGS[@]}" "${LABELS[@]}" --pull=newer --tag "${target_image}:${tag}" --file Containerfile)
+    PODMAN_BUILD_ARGS=("${BUILD_ARGS[@]}" "${LABELS[@]}" --build-arg "BASE_IMAGE={{ base_image }}" --pull=newer --tag "${target_image}:${tag}" --file Containerfile)
 
     podman build "${PODMAN_BUILD_ARGS[@]}" .
 
@@ -191,16 +194,25 @@ generate-build-tags $target_image=image_name $tag=default_tag:
 
     DATE=$(date +%Y%m%d)
     BUILD_TAGS=()
-    if [[ -z "$(git status -s)" ]]; then
-        GIT_SHA=$(git rev-parse --short HEAD)
-        BUILD_TAGS+=("${tag}-${GIT_SHA}")
-        BUILD_TAGS+=("${tag}-${DATE}-${GIT_SHA}")
-        BUILD_TAGS+=("${DATE}-${GIT_SHA}")
+    if [[ "{{ tag }}" == "latest" ]]; then
+        if [[ -z "$(git status -s)" ]]; then
+            GIT_SHA=$(git rev-parse --short HEAD)
+            BUILD_TAGS+=("${tag}-${GIT_SHA}")
+            BUILD_TAGS+=("${tag}-${DATE}-${GIT_SHA}")
+            BUILD_TAGS+=("${DATE}-${GIT_SHA}")
+        fi
+        BUILD_TAGS+=("${DATE}")
+        BUILD_TAGS+=("${tag}")
+        BUILD_TAGS+=("${tag}-${DATE}")
+    else
+        if [[ -z "$(git status -s)" ]]; then
+            GIT_SHA=$(git rev-parse --short HEAD)
+            BUILD_TAGS+=("${tag}-${GIT_SHA}")
+            BUILD_TAGS+=("${tag}-${DATE}-${GIT_SHA}")
+        fi
+        BUILD_TAGS+=("${tag}")
+        BUILD_TAGS+=("${tag}-${DATE}")
     fi
-
-    BUILD_TAGS+=("${DATE}")
-    BUILD_TAGS+=("${tag}")
-    BUILD_TAGS+=("${tag}-${DATE}")
 
     echo "${BUILD_TAGS[@]}"
 
